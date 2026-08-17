@@ -1,0 +1,14 @@
+{
+  "sourceChannels": [
+    {
+      "code": "CH-001",
+      "username": "@BarbieLand_shop",
+      "priceAdjustment": {
+        "type": "percent",
+        "value": 0
+      },
+      "active": true
+    }
+  ],
+  "destinationChannel": "@manto_omde_mk"
+}
