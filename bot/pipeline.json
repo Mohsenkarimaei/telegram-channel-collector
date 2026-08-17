@@ -1,0 +1,7 @@
+{
+  "name": "M&K Multi Channel Collector",
+  "source": {"code": "CH-001", "username": "@BarbieLand_shop", "priceAdjustment": {"type": "percent", "value": 0}},
+  "processing": {"keepMedia": true, "keepProductCaption": true, "removeSourcePhoneNumbers": true, "removeSourceUsernames": true, "removeSourceChannelNames": true, "removeSourceLinks": true, "removeSourcePromotionalText": true},
+  "footer": "جهت سفارش👇\n\nواتساپ : 09384712198\n🆔 @pakhshe_mk",
+  "destinations": [{"type": "telegram", "enabled": true, "channel": "@manto_omde_mk"}, {"type": "rubika", "enabled": false, "channel": ""}, {"type": "whatsapp", "enabled": false, "channel": ""}]
+}
