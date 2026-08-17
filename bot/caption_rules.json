@@ -1,0 +1,17 @@
+{
+  "destination": {
+    "whatsapp": "09384712198",
+    "orderId": "@pakhshe_mk"
+  },
+  "rules": {
+    "preserveProductDetails": true,
+    "removeSourceContactInfo": true,
+    "removeSourceUsernames": true,
+    "removeSourceChannelNames": true,
+    "removeSourcePromotionalText": true,
+    "preserveMedia": true,
+    "preservePrice": true,
+    "appendDestinationContact": true
+  },
+  "outputTemplate": "{product_caption}\n\nجهت سفارش👇\n\nواتساپ : {whatsapp}\n🆔 {orderId}"
+}
