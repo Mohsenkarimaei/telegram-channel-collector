@@ -1,0 +1,18 @@
+{
+  "sources": [
+    {
+      "code": "CH-001",
+      "name": "BarbieLand Shop",
+      "username": "@BarbieLand_shop",
+      "active": true,
+      "priceAdjustment": {
+        "type": "percent",
+        "value": 0
+      }
+    }
+  ],
+  "destination": {
+    "username": "",
+    "active": false
+  }
+}
