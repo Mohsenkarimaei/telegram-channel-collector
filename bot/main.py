@@ -5,6 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -20,7 +21,7 @@ PRICE_TYPE = os.getenv("PRICE_TYPE", "percent")
 PRICE_VALUE = Decimal(os.getenv("PRICE_VALUE", "0"))
 WHATSAPP = os.getenv("WHATSAPP_NUMBER", "09384712198")
 ORDER_ID = os.getenv("ORDER_ID", "@pakhshe_mk")
-SESSION = os.getenv("SESSION_NAME", "mk_collector")
+SESSION_STRING = os.getenv("TELEGRAM_SESSION_STRING", "").strip()
 
 PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 PRICE_RE = re.compile(r"(قیمت\s*[:：]?\s*)([۰-۹٠-٩\d][۰-۹٠-٩\d,،.]*)", re.I)
@@ -56,14 +57,10 @@ def clean_caption(caption):
             if kept and kept[-1] != "":
                 kept.append("")
             continue
-
-        # Remove source contact information and links.
         line = PHONE_RE.sub("", line)
         line = URL_RE.sub("", line)
         line = HANDLE_RE.sub("", line)
         line = re.sub(r"پوشاک\s*باربی\s*لند", "", line, flags=re.I).strip()
-
-        # Remove lines that are purely source ordering/contact/advertising text.
         if re.match(r"^(جهت سفارش|برای سفارش|تماس|ارتباط|خرید)\b", line, re.I):
             continue
         if re.match(r"^(واتساپ|whatsapp|تلگرام|telegram)\b", line, re.I):
@@ -83,7 +80,14 @@ def clean_caption(caption):
     return f"{text}\n\n{footer}" if text else footer
 
 
-client = TelegramClient(SESSION, API_ID, API_HASH)
+# Use a saved user session if available. Otherwise use the BotFather token,
+# which avoids interactive login prompts in Railway.
+if SESSION_STRING:
+    client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+    RUN_MODE = "user-session"
+else:
+    client = TelegramClient("bot_session", API_ID, API_HASH)
+    RUN_MODE = "bot"
 
 
 @client.on(events.NewMessage(chats=SOURCE))
@@ -91,7 +95,6 @@ async def on_new_post(event):
     try:
         caption = clean_caption(event.raw_text or "")
         if event.media:
-            # Telethon preserves the original media while letting us replace the caption.
             await client.send_file(DESTINATION, event.media, caption=caption)
         else:
             await client.send_message(DESTINATION, caption)
@@ -101,10 +104,13 @@ async def on_new_post(event):
 
 
 async def main():
-    # User session is used for reading source channels; BOT_TOKEN is used only as a required deployment secret.
-    await client.start()
+    if RUN_MODE == "user-session":
+        await client.start()
+    else:
+        await client.start(bot_token=BOT_TOKEN)
+
     me = await client.get_me()
-    log.info("Logged in as %s", getattr(me, "username", None) or me.id)
+    log.info("Logged in as %s mode=%s", getattr(me, "username", None) or me.id, RUN_MODE)
     log.info("Listening: %s (%s) -> %s", SOURCE, SOURCE_CODE, DESTINATION)
     await client.run_until_disconnected()
 
