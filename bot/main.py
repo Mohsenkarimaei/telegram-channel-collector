@@ -1,27 +1,51 @@
+import logging
 import os
 import re
-import logging
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
+from telethon.errors import RPCError
 from telethon.sessions import StringSession
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("mk-collector")
 
-API_ID = int(os.environ["TELEGRAM_API_ID"])
-API_HASH = os.environ["TELEGRAM_API_HASH"]
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-SOURCE = os.getenv("TELEGRAM_SOURCE", "@BarbieLand_shop")
-DESTINATION = os.getenv("TELEGRAM_DESTINATION", "@manto_omde_mk")
-SOURCE_CODE = os.getenv("SOURCE_CODE", "CH-001")
-PRICE_TYPE = os.getenv("PRICE_TYPE", "percent")
-PRICE_VALUE = Decimal(os.getenv("PRICE_VALUE", "0"))
-WHATSAPP = os.getenv("WHATSAPP_NUMBER", "09384712198")
-ORDER_ID = os.getenv("ORDER_ID", "@pakhshe_mk")
+
+def required(name):
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
+try:
+    API_ID = int(required("TELEGRAM_API_ID"))
+except ValueError as exc:
+    raise RuntimeError("TELEGRAM_API_ID must be a number") from exc
+
+API_HASH = required("TELEGRAM_API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 SESSION_STRING = os.getenv("TELEGRAM_SESSION_STRING", "").strip()
+SOURCE = os.getenv("TELEGRAM_SOURCE", "@BarbieLand_shop").strip()
+DESTINATION = os.getenv("TELEGRAM_DESTINATION", "@manto_omde_mk").strip()
+SOURCE_CODE = os.getenv("SOURCE_CODE", "CH-001").strip()
+PRICE_TYPE = os.getenv("PRICE_TYPE", "percent").strip().lower()
+WHATSAPP = os.getenv("WHATSAPP_NUMBER", os.getenv("WHATSAPP", "")).strip()
+ORDER_ID = os.getenv("ORDER_ID", "@pakhshe_mk").strip()
+
+try:
+    PRICE_VALUE = Decimal(os.getenv("PRICE_VALUE", "0").strip())
+except InvalidOperation as exc:
+    raise RuntimeError("PRICE_VALUE must be a number") from exc
+
+if not SOURCE or not DESTINATION:
+    raise RuntimeError("TELEGRAM_SOURCE and TELEGRAM_DESTINATION cannot be empty")
+if PRICE_TYPE not in {"percent", "fixed"}:
+    raise RuntimeError("PRICE_TYPE must be 'percent' or 'fixed'")
+if not BOT_TOKEN and not SESSION_STRING:
+    raise RuntimeError("Set BOT_TOKEN or TELEGRAM_SESSION_STRING")
 
 PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 PRICE_RE = re.compile(r"(قیمت\s*[:：]?\s*)([۰-۹٠-٩\d][۰-۹٠-٩\d,،.]*)", re.I)
@@ -35,7 +59,8 @@ def normalize_digits(text):
 
 
 def parse_number(raw):
-    return Decimal(re.sub(r"[^0-9.]", "", normalize_digits(raw)))
+    cleaned = re.sub(r"[^0-9.]", "", normalize_digits(raw))
+    return Decimal(cleaned) if cleaned else Decimal("0")
 
 
 def format_number(value):
@@ -57,14 +82,17 @@ def clean_caption(caption):
             if kept and kept[-1] != "":
                 kept.append("")
             continue
+
         line = PHONE_RE.sub("", line)
         line = URL_RE.sub("", line)
         line = HANDLE_RE.sub("", line)
         line = re.sub(r"پوشاک\s*باربی\s*لند", "", line, flags=re.I).strip()
+
         if re.match(r"^(جهت سفارش|برای سفارش|تماس|ارتباط|خرید)\b", line, re.I):
             continue
         if re.match(r"^(واتساپ|whatsapp|تلگرام|telegram)\b", line, re.I):
             continue
+
         line = re.sub(r"\s{2,}", " ", line).strip()
         if line:
             kept.append(line)
@@ -80,8 +108,8 @@ def clean_caption(caption):
     return f"{text}\n\n{footer}" if text else footer
 
 
-# Use a saved user session if available. Otherwise use the BotFather token,
-# which avoids interactive login prompts in Railway.
+# A saved user session is preferred when the source channel is not accessible
+# to the bot account. Otherwise use BOT_TOKEN so Railway never asks for a phone/code.
 if SESSION_STRING:
     client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
     RUN_MODE = "user-session"
@@ -100,21 +128,32 @@ async def on_new_post(event):
             await client.send_message(DESTINATION, caption)
         log.info("Published source=%s code=%s message=%s", SOURCE, SOURCE_CODE, event.id)
     except Exception:
-        log.exception("Failed to process message %s", event.id)
+        log.exception("Failed to process source message %s", event.id)
 
 
 async def main():
-    if RUN_MODE == "user-session":
-        await client.start()
-    else:
-        await client.start(bot_token=BOT_TOKEN)
+    try:
+        if RUN_MODE == "user-session":
+            await client.start()
+        else:
+            await client.start(bot_token=BOT_TOKEN)
 
-    me = await client.get_me()
-    log.info("Logged in as %s mode=%s", getattr(me, "username", None) or me.id, RUN_MODE)
-    log.info("Listening: %s (%s) -> %s", SOURCE, SOURCE_CODE, DESTINATION)
-    await client.run_until_disconnected()
+        me = await client.get_me()
+        identity = getattr(me, "username", None) or getattr(me, "id", "unknown")
+        log.info("Telegram connected: account=%s mode=%s", identity, RUN_MODE)
+        log.info("Collector: %s (%s) -> %s", SOURCE, SOURCE_CODE, DESTINATION)
+        if RUN_MODE == "bot":
+            log.warning("Bot mode: source channel must be accessible to this bot")
+        if not WHATSAPP:
+            log.warning("WHATSAPP_NUMBER/WHATSAPP is empty; footer will contain a blank number")
+        await client.run_until_disconnected()
+    except RPCError:
+        log.exception("Telegram API error. Check channel access and Telegram credentials.")
+        raise
+    except Exception:
+        log.exception("Collector stopped unexpectedly")
+        raise
 
 
 if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())
+    client.loop.run_until_complete(main())
